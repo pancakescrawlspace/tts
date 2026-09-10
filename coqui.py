@@ -46,9 +46,39 @@ def check_tos():
     )
 
 
+def use_soundfile_for_decoding():
+    """Decode the reference clip with soundfile instead of torchcodec.
+
+    torchaudio 2.11 routes every load() through torchcodec, which needs FFmpeg's
+    shared libraries. That can fail for reasons unrelated to this project - on
+    macOS 26 with MacPorts FFmpeg, libavfilter references _CGLGetCurrentContext,
+    an OpenGL symbol Apple removed, so no torchcodec backend loads at all.
+
+    XTTS only decodes one thing (the speaker reference); resampling afterwards is
+    pure torch. soundfile reads WAV/FLAC/OGG with no FFmpeg involved, so prefer
+    it and keep torchaudio as the fallback for anything it can't open.
+    """
+    import soundfile as sf
+    import torch
+    import torchaudio
+
+    original_load = torchaudio.load
+
+    def load_via_soundfile(path, *args, **kwargs):
+        try:
+            data, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        except Exception:
+            return original_load(path, *args, **kwargs)
+        return torch.from_numpy(data.T).contiguous(), rate
+
+    torchaudio.load = load_via_soundfile
+
+
 def load():
     from TTS.api import TTS
     import torch
+
+    use_soundfile_for_decoding()
     # Apple Silicon GPU where possible; XTTS falls back to CPU for some ops.
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     return TTS(MODEL).to(device)
@@ -85,6 +115,15 @@ def main():
 
     if not args.reference and not args.speaker:
         ap.error("pick a voice: -r sample.wav to clone one, or -S NAME (see --speakers)")
+
+    if args.reference and not Path(args.reference).is_file():
+        sys.exit(
+            f"No such reference file: {args.reference}\n"
+            "-r takes a recording of the voice you want to clone: 6-30 seconds of\n"
+            "clean speech as WAV, FLAC or OGG. On macOS you can record one with\n"
+            "Voice Memos, or from the terminal with:\n"
+            "    ffmpeg -f avfoundation -i :default -t 15 me.wav"
+        )
 
     OUT.mkdir(exist_ok=True)
     out_path = Path(args.output) if args.output else OUT / f"coqui_{args.lang}.wav"

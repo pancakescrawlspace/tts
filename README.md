@@ -72,7 +72,27 @@ export COQUI_TOS_AGREED=1
 ```
 
 Languages: en es fr de it pt pl tr ru nl cs ar zh-cn hu ko ja hi.
-A reference sample should be 6-30 seconds of clean speech, no music or noise.
+
+`-r` needs a real recording of the voice you want to clone - `me.wav` above is a
+placeholder, not a file that ships with this repo. Aim for 6-30 seconds of clean
+speech, no music or background noise, as WAV, FLAC or OGG. Record one with Voice
+Memos, or:
+
+```bash
+ffmpeg -f avfoundation -i :default -t 15 me.wav
+```
+
+### Why decoding goes through soundfile
+
+torchaudio 2.11 routes every `load()` through torchcodec, which needs FFmpeg's
+shared libraries. On macOS 26 with MacPorts FFmpeg that fails for every backend
+version, because `libavfilter` references `_CGLGetCurrentContext` - an OpenGL
+symbol Apple removed - and the error surfaces as a wall of `dlopen` tracebacks
+ending in `Failed to create AudioDecoder`.
+
+XTTS only decodes one file (the reference clip), and resampling afterwards is pure
+torch, so `coqui.py` points `torchaudio.load` at soundfile, which reads WAV/FLAC/OGG
+without FFmpeg. torchaudio stays as the fallback for formats soundfile can't open.
 
 ## Adding voices
 
