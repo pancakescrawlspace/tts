@@ -2,3 +2,5 @@
 voices/
 out/
 .venv-coqui/
+__pycache__/
+*.pyc

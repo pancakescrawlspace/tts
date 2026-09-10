@@ -1,4 +1,4 @@
-#!/Users/rene/dev/text2speech/.venv-coqui/bin/python
+#!/usr/bin/env python3
 """Coqui XTTS-v2: multilingual TTS with voice cloning from a short sample.
 
 Lives in its own venv (.venv-coqui) because it pins older torch/transformers
@@ -15,11 +15,20 @@ Examples:
     ./coqui.py -r me.wav "Hello, this is my cloned voice"    # clone from a sample
     ./coqui.py -r me.wav -l nl "Hallo, dit is mijn stem"     # ...in Dutch
 """
-import argparse
 import os
-import subprocess
 import sys
 from pathlib import Path
+
+# Re-exec under this project's venv so ./coqui.py works from a fresh clone
+# without anyone having to activate anything first.
+_VENV = Path(__file__).resolve().parent / ".venv-coqui" / "bin" / "python"
+if Path(sys.prefix).resolve() != _VENV.parent.parent and _VENV.exists():
+    os.execv(str(_VENV), [str(_VENV), str(Path(__file__).resolve()), *sys.argv[1:]])
+if not _VENV.exists():
+    sys.exit("Missing .venv-coqui/ - run ./setup.sh first.")
+
+import argparse
+import subprocess
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "out"

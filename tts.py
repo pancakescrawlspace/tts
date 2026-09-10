@@ -1,4 +1,4 @@
-#!/Users/rene/dev/text2speech/.venv/bin/python
+#!/usr/bin/env python3
 """Try out two open-source TTS engines: Piper (fast, offline, multilingual)
 and Kokoro (slower, more natural-sounding English).
 
@@ -10,12 +10,21 @@ Examples:
     ./tts.py --list                                 # show available voices
     ./tts.py -i chapter.txt -o book.wav --no-play   # read from a file
 """
-import argparse
 import os
-import subprocess
 import sys
-import warnings
 from pathlib import Path
+
+# Re-exec under this project's venv so ./tts.py works from a fresh clone
+# without anyone having to activate anything first.
+_VENV = Path(__file__).resolve().parent / ".venv" / "bin" / "python"
+if Path(sys.prefix).resolve() != _VENV.parent.parent and _VENV.exists():
+    os.execv(str(_VENV), [str(_VENV), str(Path(__file__).resolve()), *sys.argv[1:]])
+if not _VENV.exists():
+    sys.exit("Missing .venv/ - run ./setup.sh first.")
+
+import argparse
+import subprocess
+import warnings
 
 ROOT = Path(__file__).resolve().parent
 VOICES = ROOT / "voices"
