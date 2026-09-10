@@ -28,6 +28,7 @@ if not _VENV.exists():
     sys.exit("Missing .venv-coqui/ - run ./setup.sh first.")
 
 import argparse
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
@@ -126,7 +127,14 @@ def main():
         )
 
     OUT.mkdir(exist_ok=True)
-    out_path = Path(args.output) if args.output else OUT / f"coqui_{args.lang}.wav"
+    if args.output:
+        out_path = Path(args.output)
+    else:
+        # Name the file after the voice as well as the language, so trying a
+        # second speaker doesn't quietly overwrite the take you liked.
+        voice = Path(args.reference).stem if args.reference else args.speaker
+        slug = re.sub(r"[^a-z0-9]+", "_", voice.lower()).strip("_")
+        out_path = OUT / f"coqui_{args.lang}_{slug}.wav"
 
     kwargs = {"speaker_wav": args.reference} if args.reference else {"speaker": args.speaker}
     load().tts_to_file(text=text, language=args.lang, file_path=str(out_path), **kwargs)
