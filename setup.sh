@@ -42,6 +42,19 @@ build_venv() {
 build_venv .venv requirements.txt
 build_venv .venv-coqui requirements-coqui.txt
 
+# espeak-ng (used by both Piper and Kokoro for grapheme-to-phoneme) keeps its
+# data directory in a fixed 160-byte buffer. Past that it silently falls back to
+# a path from its own build machine and every synthesis fails with a confusing
+# "phontab: No such file or directory". Catch it here rather than at run time.
+espeak_data="$(.venv/bin/python -c 'import sysconfig,os; print(os.path.join(sysconfig.get_paths()["purelib"], "piper", "espeak-ng-data"))')"
+if [ ${#espeak_data} -ge 160 ]; then
+    echo
+    echo "WARNING: this checkout is too deeply nested for espeak-ng." >&2
+    echo "  Its data path is ${#espeak_data} chars; the limit is 160." >&2
+    echo "  Piper and Kokoro will fail here. Move the repo somewhere shorter." >&2
+    echo
+fi
+
 echo "==> Piper voices"
 mkdir -p voices out
 missing=()

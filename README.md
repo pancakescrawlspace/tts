@@ -14,6 +14,32 @@ Three open-source, fully offline TTS engines.
 
 Coqui needs its own venv: it pins `transformers<5`, which would break Kokoro.
 
+## Setup
+
+```bash
+git clone <this repo> && cd text2speech
+./setup.sh
+```
+
+`setup.sh` builds both venvs from the pinned requirements and downloads the Piper
+voices (~370 MB). It's re-runnable and skips whatever is already there. Needs
+Python 3.10-3.12; override with `PYTHON=/path/to/python3.11 ./setup.sh`.
+
+**Don't clone this somewhere with a very long path.** espeak-ng, which both Piper and
+Kokoro use for grapheme-to-phoneme conversion, holds its data directory in a fixed
+160-byte buffer (`N_PATH_HOME`). Past that it silently falls back to a path baked in
+on its build machine and every synthesis fails with:
+
+```
+Error processing file '/Users/runner/work/piper1-gpl/.../espeak-ng-data/phontab'
+```
+
+Measured: a data dir at 145 chars works, 165 fails. `~/dev/text2speech` lands around
+83, so this only bites in deeply nested directories. It's an upstream espeak-ng
+limitation, not something this repo can work around.
+
+The scripts re-exec themselves under the right venv, so there's nothing to activate.
+
 ## Usage
 
 ```bash
