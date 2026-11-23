@@ -108,7 +108,8 @@ rules were arrived at, and the self-test, are in the pilot log, step 5.
   them fall right after a "Chapter N." heading. This belongs to the voice, not the model:
   across the same 19 pilot sections, VoxCPM2 cloning `am_onyx` has none, and Kokoro has
   one. The clone picked up the pausing from the reference clip, which itself has pauses of
-  nearly a second. Left as rendered. The longest pauses, for listening:
+  nearly a second. Shortening every pause over 1 s to about 1 s (silence only) was
+  offered, and the user chose to keep them as rendered. The longest pauses, for listening:
 
   | Pause | Where (in section) |
   |---|---|
