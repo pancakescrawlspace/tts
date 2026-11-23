@@ -4,3 +4,4 @@ out/
 .venv-coqui/
 __pycache__/
 *.pyc
+.venv-mlx/
