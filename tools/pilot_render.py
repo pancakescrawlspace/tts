@@ -11,6 +11,14 @@ silence.
   voxcpm2  mlx-community/VoxCPM2-bf16             no splitting of its own: the body is cut
                                                   into chunks of at most 300 characters
                                                   at sentence ends, with 0.25 s between them
+  voxtral  mlx-community/Voxtral-4B-TTS-2603-mlx-bf16
+                                                  preset voices only (--voice, default
+                                                  neutral_male); chunked like voxcpm2.
+                                                  Weights CC BY-NC: not for published audio
+  audio8   mlx-community/Audio8-TTS-Realistic-0.6b-bf16
+                                                  clones from REF_WAV + REF_TXT; chunked
+  omnivoice mlx-community/OmniVoice-bfloat16      clones from REF_WAV + REF_TXT; chunked;
+                                                  needs --lang (e.g. nl). Weights CC BY-NC
 
 A sentence too long for one chunk is cut at ; or :, then at commas, so the
 next chunk starts mid-sentence in lowercase ("who with lowliness..."). Each
@@ -20,8 +28,9 @@ test takes ("Dot who", "Wahu, with", "God to him be"); capitalised, all 8
 were clean. See docs/1clement-audiobook-dillon.md.
 
 The voice is cloned from REF_WAV, with its transcript REF_TXT (Drama 3 needs
-the transcript), so every engine reads in the same voice. --voice default
-uses Phonon's built-in voice instead. --vox-mode picks how VoxCPM2 uses the
+the transcript), so every engine reads in the same voice. --voice picks a
+preset instead: for Phonon "default" or a voice file, for Voxtral a preset
+name such as nl_female. Voxtral ignores REF_WAV and REF_TXT (pass /dev/null). --vox-mode picks how VoxCPM2 uses the
 reference: "ref" (audio only), "prompt" (audio + transcript as a
 continuation prompt) or "both".
 
@@ -29,7 +38,7 @@ Writes OUTDIR/NNN.wav (native sample rate, 16-bit) and one JSON line per
 section to OUTDIR/timings.jsonl. Sections that already exist are skipped.
 
 usage: .venv-mlx/bin/python tools/pilot_render.py ENGINE TEXT OUTDIR REF_WAV REF_TXT
-           [--only N] [--voice default] [--vox-mode ref|prompt|both] [--seed S]
+           [--only N] [--voice NAME] [--vox-mode ref|prompt|both] [--seed S] [--lang nl]
 """
 import argparse, json, re, time, warnings
 from pathlib import Path
@@ -44,6 +53,9 @@ REPOS = {
     "phonon": "gradium/phonon-31m-en",
     "drama3": "mlx-community/fish-audio-drama-3-4bit",
     "voxcpm2": "mlx-community/VoxCPM2-bf16",
+    "voxtral": "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16",
+    "audio8": "mlx-community/Audio8-TTS-Realistic-0.6b-bf16",
+    "omnivoice": "mlx-community/OmniVoice-bfloat16",
 }
 
 ap = argparse.ArgumentParser()
@@ -56,6 +68,7 @@ ap.add_argument("--only", type=int)
 ap.add_argument("--voice")
 ap.add_argument("--vox-mode", default="ref", choices=["ref", "prompt", "both"])
 ap.add_argument("--seed", type=int, default=0)
+ap.add_argument("--lang", default="en")              # OmniVoice needs the language
 args = ap.parse_args()
 
 text = args.text.read_text()
@@ -63,9 +76,17 @@ text = re.sub(r"\s*\{[^}]*\}", "", text)          # drop translator's footnote
 text = text.replace("[", "").replace("]", "")     # editorial insertions: keep words
 sections = [s.strip() for s in text.split("\n\n") if s.strip()]
 ref_text = args.ref_txt.read_text().strip()
+CHUNKED = ("voxcpm2", "voxtral", "audio8", "omnivoice")           # engines that get the text in chunks
 
 
 def kwargs():
+    if args.engine == "audio8":
+        return {"ref_audio": args.ref_wav, "ref_text": ref_text, "max_tokens": 2048}
+    if args.engine == "omnivoice":                # keep the whole reference: the transcript covers all of it
+        return {"ref_audio": args.ref_wav, "ref_text": ref_text, "language": args.lang,
+                "ref_audio_max_duration_s": 30.0}
+    if args.engine == "voxtral":
+        return {"voice": args.voice or "neutral_male"}
     if args.engine == "phonon":
         return {"voice": args.voice} if args.voice else {"ref_audio": args.ref_wav}
     if args.engine == "drama3":
@@ -88,13 +109,13 @@ kw = kwargs()
 
 def say(line):
     """Audio for one line, plus the number of generate() calls it took."""
-    parts = chunks(line) if args.engine == "voxcpm2" else [line]
+    parts = chunks(line) if args.engine in CHUNKED else [line]
     gap = np.zeros(int(sr * 0.25), dtype=np.float32)
     out = []
     for i, p in enumerate(parts):
         if i:
             out.append(gap)
-        if args.engine == "voxcpm2":
+        if args.engine in CHUNKED:
             p = p[:1].upper() + p[1:]            # mid-sentence starts get garbled otherwise
         for r in model.generate(text=p, **kw):
             out.append(np.asarray(r.audio, dtype=np.float32).reshape(-1))
