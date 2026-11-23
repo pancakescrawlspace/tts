@@ -37,8 +37,14 @@ The recognisers (--asr both, the default; or just one of them):
 Numbers are only spelled out in English, so for other languages keep digits
 out of the text.
 
+--chunk-starts (for VoxCPM2 runs): also checks every chunk that starts
+mid-sentence (see textchunks.py), and lists those whose first words both
+recognisers mishear. That's where a cloned voice garbled or prefixed the
+opening ("Dot who, with lowliness"): one wrong word, too small for the
+3-word rule, but audible.
+
 usage: .venv-mlx/bin/python tools/pilot_check.py [--asr both|parakeet|whisper] [--lang nl]
-           TEXT REF_WAV DIR [DIR ...]
+           [--chunk-starts] TEXT REF_WAV DIR [DIR ...]
 """
 import difflib, json, re, sys, warnings
 from pathlib import Path
@@ -48,6 +54,8 @@ import numpy as np, soundfile as sf
 from scipy.signal import resample_poly
 
 argv = sys.argv[1:]
+chunk_starts = "--chunk-starts" in argv
+argv = [x for x in argv if x != "--chunk-starts"]
 opts = {"--asr": "both", "--lang": "en"}
 while argv[:1] and argv[0] in opts:
     opts[argv[0]], argv = argv[1], argv[2:]
@@ -151,8 +159,9 @@ for d in dirs:
     files = sorted(d.glob("[0-9][0-9][0-9].wav"))
     if len(files) != len(secs):
         print(f"WARNING {d.name}: {len(secs)} sections in text, {len(files)} WAVs")
-    errs = nref = 0
+    errs = nref = starts_total = 0
     runs, wins, levels, rates, clip, total, dur = [], [], [], [], 0, 0, 0.0
+    starts_bad = []
     for i, (sec, f) in enumerate(zip(secs, files)):
         a, sr = sf.read(f, dtype="float32")
         dur += len(a) / sr
@@ -181,6 +190,22 @@ for d in dirs:
                     continue                    # one recogniser only, or already listed
                 seen.append((s, t))
                 runs.append((i, op, " ".join(ref[s:t]), " / ".join([said] + [x[3] for x in hit])))
+        if chunk_starts:                        # openings of chunks cut mid-sentence
+            from textchunks import chunks
+            lines = sec.split("\n")
+            pos = len(words(lines[0])) if len(lines) > 1 else 0
+            for c in chunks(lines[-1]):
+                if c[:1].islower():
+                    heard = []
+                    for h in hyps.values():
+                        sm = difflib.SequenceMatcher(None, ref, h, autojunk=False)
+                        bad = [o for o in sm.get_opcodes()
+                               if o[0] != "equal" and o[1] <= pos + 2 and pos - 1 <= max(o[2] - 1, o[1])]
+                        heard.append(" ".join(h[max(bad[0][3] - 1, 0):bad[-1][4] + 1]) if bad else None)
+                    starts_total += 1
+                    if all(heard):
+                        starts_bad.append((i, " ".join(words(c)[:4]), " / ".join(heard)))
+                pos += len(words(c))
         # level, clipping, rate
         clip += int((np.abs(a) >= 0.999).sum()); total += len(a)
         fr = a[: len(a) // 2400 * 2400].reshape(-1, 2400)  # 0.1 s frames at 24 kHz-ish
@@ -211,6 +236,8 @@ for d in dirs:
            "self_p5": round(float(np.percentile(sim_self, 5)), 3), "self_min": round(float(sim_self.min()), 3),
            "level_sd_db": round(float(np.std(levels)), 2), "wpm_median": round(float(np.median(rates))),
            "clipped": clip}
+    if chunk_starts:
+        row["chunk_starts_misheard"] = f"{len(starts_bad)} of {starts_total}"
     summary.append(row)
     print(f"\n== {d.name}")
     for k, v in row.items():
@@ -218,6 +245,8 @@ for d in dirs:
             print(f"  {k:12s} {v}")
     for i, op, rr, hh in runs:
         print(f"  [{op} s{i:02d}] src: {rr[:90]!r}\n               asr: {hh[:90]!r}")
+    for i, first, hh in starts_bad:
+        print(f"  [chunk start s{i:02d}] src: {first!r}\n               asr: {hh!r}")
     for k in np.argsort(sim_self)[:3]:
         i, s, _ = wins[k]
         print(f"  lowest self-sim: section {i:2d} at {int(s) // 60}:{int(s) % 60:02d}  self {sim_self[k]:.3f}  ref {sim_ref[k]:.3f}")

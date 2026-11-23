@@ -12,6 +12,13 @@ silence.
                                                   into chunks of at most 300 characters
                                                   at sentence ends, with 0.25 s between them
 
+A sentence too long for one chunk is cut at ; or :, then at commas, so the
+next chunk starts mid-sentence in lowercase ("who with lowliness..."). Each
+chunk is given to the model with its first letter capitalised. Without that,
+the VoxCPM2 clone of Tim Dillon garbled or prefixed such openings in 5 of 8
+test takes ("Dot who", "Wahu, with", "God to him be"); capitalised, all 8
+were clean. See docs/1clement-audiobook-dillon.md.
+
 The voice is cloned from REF_WAV, with its transcript REF_TXT (Drama 3 needs
 the transcript), so every engine reads in the same voice. --voice default
 uses Phonon's built-in voice instead. --vox-mode picks how VoxCPM2 uses the
@@ -31,13 +38,13 @@ warnings.filterwarnings("ignore")
 import numpy as np, soundfile as sf
 import mlx.core as mx
 from mlx_audio.tts.utils import load
+from textchunks import chunks          # VoxCPM2 only; Drama 3's own splitter uses 300 bytes too
 
 REPOS = {
     "phonon": "gradium/phonon-31m-en",
     "drama3": "mlx-community/fish-audio-drama-3-4bit",
     "voxcpm2": "mlx-community/VoxCPM2-bf16",
 }
-CHUNK = 300  # VoxCPM2 only; Drama 3's own splitter uses 300 bytes too
 
 ap = argparse.ArgumentParser()
 ap.add_argument("engine", choices=REPOS)
@@ -56,24 +63,6 @@ text = re.sub(r"\s*\{[^}]*\}", "", text)          # drop translator's footnote
 text = text.replace("[", "").replace("]", "")     # editorial insertions: keep words
 sections = [s.strip() for s in text.split("\n\n") if s.strip()]
 ref_text = args.ref_txt.read_text().strip()
-
-
-def pieces(s, seps=(r"(?<=[.!?])\s+", r"(?<=[;:])\s+", r"(?<=,)\s+", r"\s+")):
-    """Split s at the coarsest boundary that gets every piece under CHUNK."""
-    if len(s) <= CHUNK or not seps:
-        return [s]
-    return [q for p in re.split(seps[0], s) for q in pieces(p, seps[1:])]
-
-
-def chunks(s):
-    out, cur = [], ""
-    for p in pieces(s):
-        if cur and len(cur) + 1 + len(p) > CHUNK:
-            out.append(cur)
-            cur = p
-        else:
-            cur = f"{cur} {p}".strip()
-    return out + [cur] if cur else out
 
 
 def kwargs():
@@ -105,6 +94,8 @@ def say(line):
     for i, p in enumerate(parts):
         if i:
             out.append(gap)
+        if args.engine == "voxcpm2":
+            p = p[:1].upper() + p[1:]            # mid-sentence starts get garbled otherwise
         for r in model.generate(text=p, **kw):
             out.append(np.asarray(r.audio, dtype=np.float32).reshape(-1))
     return np.concatenate(out), len(parts)
