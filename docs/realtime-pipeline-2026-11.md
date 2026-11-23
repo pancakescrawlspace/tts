@@ -158,6 +158,35 @@ had its first audio ready, and when that audio reached the (simulated) speakers.
 - **Word-perfect:** the saved audio of the first run, transcribed with Parakeet, matches the
   99 words sent exactly.
 
+### Offline start-up, and a faster model
+
+After the first run with sound, each start printed Hugging Face's "Fetching 10 files" and
+"set an HF_TOKEN" lines, even though everything was cached. `rt_tts.py` now does what
+`tts.py` does for Kokoro. If the model and the chosen voice file are already on disk, it
+sets `HF_HUB_OFFLINE=1` (and hides the progress bars) before mlx-audio is imported.
+
+That did more than tidy the output:
+
+| | Model ready after (median / max) | Model loaded and warm |
+|---|---|---|
+| Online (the runs above) | 174 / 216 ms | 1.1–1.2 s |
+| **Offline** | **36 / 44 ms** | **0.76 s** |
+
+Most of the ~170 ms wasn't synthesis. mlx-audio resolves the `hf://` voice file on every
+`generate()` call, and online that's a request to the Hugging Face Hub for each sentence.
+Offline, it reads the cached file directly. The real-time measurements in
+[licensed-voices-2026-11.md](licensed-voices-2026-11.md) (Phonon: first audio after about
+0.2 s) were made online, so Phonon's own latency is lower than they show.
+
+**A bug the test exposed:** with a voice that doesn't exist, the model failed to load in
+the synthesis thread, and the main program waited forever for it to become ready. Now
+that thread reports the error and wakes everything up, so the program exits within a
+second:
+
+```
+[  0.73 s] could not load the model or voice: Unknown voice '/nonexistent/x.safetensors'. Available voices: default
+```
+
 ### With sound
 
 The same commands without `--no-play` play through the default output device, here a JBL

@@ -20,7 +20,8 @@ speed); --save writes everything that was played to a WAV file.
 usage: .venv-mlx/bin/python tools/rt_tts.py (--ws URL | --poll URL) [--interval 0.5]
            [--flush 1.0] [--voice us_russell] [--save OUT.wav] [--no-play]
 """
-import argparse, asyncio, json, queue, re, threading, time, urllib.request, warnings
+import argparse, asyncio, json, os, queue, re, threading, time, urllib.request, warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 import numpy as np
@@ -44,7 +45,7 @@ SR = 24000
 T0 = time.perf_counter()
 text_q, audio_q = queue.Queue(), queue.Queue(maxsize=64)
 epoch = [0]                       # bumped by <stop>; older text and audio are then dropped
-ready = threading.Event()
+ready, failed = threading.Event(), threading.Event()
 stats = {}                        # sentence id -> {"text": t, "ready": t, "play": t}
 
 
@@ -54,6 +55,26 @@ def now():
 
 def log(msg):
     print(f"[{now():6.2f} s] {msg}", flush=True)
+
+
+def cached():
+    """True when the model and the chosen voice are already on disk."""
+    hub = Path(os.environ.get("HF_HUB_CACHE", Path.home() / ".cache/huggingface/hub"))
+    snaps = lambda repo: list((hub / f"models--{repo.replace('/', '--')}" / "snapshots").glob("*"))
+    model = any((s / "model.safetensors").exists() for s in snaps("gradium/phonon-31m-en"))
+    m = re.match(r"hf://gradium/phonon-voices/([^@]+)", VOICE)
+    voice = not m or any((s / m.group(1)).exists() for s in snaps("gradium/phonon-voices"))
+    return model and voice
+
+
+# Like tts.py: once everything is cached, stay off the network. Otherwise the Hub
+# is asked about every file on each start ("Fetching 10 files", the HF_TOKEN
+# warning). Must be set before mlx_audio, and with it huggingface_hub, is imported.
+if cached():
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+else:
+    log("first run: downloading the model and voice")
 
 
 class Sentences:
@@ -103,10 +124,17 @@ def handle(msg):
 
 
 def synthesise():
-    from mlx_audio.tts.utils import load
-    model = load("gradium/phonon-31m-en")
-    for _ in model.generate(text="Ready.", voice=VOICE):   # warm-up: the first call is slow
-        pass
+    try:
+        from mlx_audio.tts.utils import load
+        model = load("gradium/phonon-31m-en")
+        for _ in model.generate(text="Ready.", voice=VOICE):   # warm-up: the first call is slow
+            pass
+    except Exception as e:        # e.g. an unknown voice: say so instead of leaving main waiting
+        log(f"could not load the model or voice: {e}")
+        failed.set()
+        ready.set()
+        audio_q.put(None)         # lets the player thread finish
+        return
     log("model loaded and warm")
     ready.set()
     while True:
@@ -191,6 +219,9 @@ player = threading.Thread(target=play)
 synth.start()
 player.start()
 ready.wait()
+if failed.is_set():
+    player.join()
+    raise SystemExit(1)
 if args.ws:
     asyncio.run(listen_ws())
 else:
