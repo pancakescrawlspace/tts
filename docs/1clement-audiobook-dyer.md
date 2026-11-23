@@ -103,6 +103,24 @@ rules were arrived at, and the self-test, are in the pilot log, step 5.
   a measurement artifact, not a voice change. From 6 s on, the scores are 0.64–0.70, which
   is normal. Parakeet hears the word correctly. Whisper drops that sentence, its usual
   failure.
+- **Chunk openings (checked later).** The Tim Dillon version revealed that VoxCPM2 can
+  garble the first words of a chunk that starts mid-sentence in lowercase (see
+  [1clement-audiobook-dillon.md](1clement-audiobook-dillon.md), step 2a). This book was
+  rendered before that was found and fixed, so it was checked afterwards with
+  `pilot_check.py --chunk-starts`. Both recognisers mishear 3 of its 38 such openings:
+
+  | Chapter | Source | Heard (Parakeet / Whisper) | Verdict |
+  |---|---|---|---|
+  | 35 | "if we seek out" | "God **or** if" / "God **are** if" | Likely real: an extra syllable before "if" |
+  | 44 | "and for long time" | "for **a** long" / same | Likely the recognisers turning the archaic "for long time" into "for a long time" |
+  | 59 | "the succor of them" | "the sucker of" (Whisper) | A homophone, not an error |
+
+  **Chapter 35 was re-rendered** with the fix, at the user's request. Both recognisers now
+  hear "fixed through faith towards God, if we seek out", without the extra syllable. The
+  new take is 136.0 s; the old one, and the first encoded files, are kept in
+  `out/1clement_dyer/replaced/`. Afterwards the check reports 2 of 38 openings, the two
+  recogniser artifacts above. The book's other figures are unchanged: 0.82% WER, no 3+
+  word errors, voice consistency 0.864. The book was then joined and encoded again (step 7).
 - **Long pauses.** The audio contains 131 silences of 1.5 s or more inside sections, beyond
   the designed 0.25/0.5 s gaps. That's about 1.6 per minute, the longest 2.5 s, and 49 of
   them fall right after a "Chapter N." heading. This belongs to the voice, not the model:
@@ -143,11 +161,13 @@ Checked with `ffprobe`:
 
 | File | Codec | Duration | Bitrate | Size | Chapters |
 |---|---|---|---|---|---|
-| `out/1clement_dyer_voxcpm2.m4b` | AAC, 48 kHz mono | 1:24:59 | 65.5 kbps | 41.8 MB | 67 |
-| `out/1clement_dyer_voxcpm2.mp3` | MP3, 48 kHz mono | 1:24:59 | 64.0 kbps | 40.8 MB | 67 |
+| `out/1clement_dyer_voxcpm2.m4b` | AAC, 48 kHz mono | 1:24:53 | 65.5 kbps | 41.7 MB | 67 |
+| `out/1clement_dyer_voxcpm2.mp3` | MP3, 48 kHz mono | 1:24:53 | 64.0 kbps | 40.7 MB | 67 |
 
+- **These are the files after chapter 35 was re-rendered.** The first encode was 1:24:59
+  (41.8 / 40.8 MB) and is kept in `out/1clement_dyer/replaced/`.
 - **Chapters:** both files report the same start times: Title 0:00, Greeting 0:08,
-  Chapter 1 0:27, …, Chapter 64 1:23:36, Chapter 65 1:24:15.
+  Chapter 1 0:27, …, Chapter 64 1:23:30, Chapter 65 1:24:09.
 - **Tags:** title, artist and the comment tag are present in both. The `.m4b` also has a
   `bin_data` stream, which is its chapter-title track.
 - **Cleaned up:** the joined WAV (489 MB) was deleted after encoding.
